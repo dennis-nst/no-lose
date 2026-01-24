@@ -3,7 +3,12 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql://wa_user:wa_password@localhost:5432/wa_database"
+    database_url: str = "postgresql+psycopg://wa_user:wa_password@localhost:5432/wa_database"
+
+    # JWT Settings
+    secret_key: str = "your-secret-key-change-in-production"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
 
     # WhatsApp Cloud API
     wa_phone_number_id: str = ""
