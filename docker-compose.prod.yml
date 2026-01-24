@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: wa_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+      - evolution
+    restart: unless-stopped
+    mem_limit: 64m
+
+  # Frontend - Next.js
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wa_frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=/api
+    restart: unless-stopped
+    mem_limit: 200m
+
+  # Backend - FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wa_backend
+    environment:
+      - DATABASE_URL=postgresql://wa_user:wa_password@postgres:5432/wa_database
+      - EVOLUTION_API_URL=http://evolution:8080
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 150m
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: wa_postgres
+    environment:
+      POSTGRES_USER: wa_user
+      POSTGRES_PASSWORD: wa_password
+      POSTGRES_DB: wa_database
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wa_user -d wa_database"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 200m
+    command: postgres -c shared_buffers=64MB -c max_connections=20
+
+  # Evolution API for WhatsApp
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: wa_evolution
+    environment:
+      - SERVER_URL=https://${DOMAIN}/evolution
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://wa_user:wa_password@postgres:5432/wa_database
+      - DATABASE_CONNECTION_CLIENT_NAME=evolution
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=true
+      - DATABASE_SAVE_MESSAGE_UPDATE=true
+      - DATABASE_SAVE_DATA_CONTACTS=true
+      - DATABASE_SAVE_DATA_CHATS=true
+      - QRCODE_LIMIT=10
+      - WEBHOOK_GLOBAL_ENABLED=true
+      - WEBHOOK_GLOBAL_URL=http://backend:8000/api/webhook/evolution
+      - CONFIG_SESSION_PHONE_CLIENT=WA App
+      - CONFIG_SESSION_PHONE_NAME=Chrome
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 350m
+
+volumes:
+  postgres_data:
+  evolution_instances:
