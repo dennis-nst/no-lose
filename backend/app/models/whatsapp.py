@@ -9,9 +9,14 @@ class Contact(Base):
     __tablename__ = "contacts"
 
     id = Column(Integer, primary_key=True, index=True)
-    wa_id = Column(String(50), unique=True, index=True)  # WhatsApp ID (phone number)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # Owner of this contact
+    wa_id = Column(String(50), index=True)  # WhatsApp ID (phone number)
     name = Column(String(255), nullable=True)
     profile_name = Column(String(255), nullable=True)
+
+    # Evolution API specific fields
+    evolution_remote_jid = Column(String(100), nullable=True, index=True)  # e.g., 1234567890@s.whatsapp.net
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -36,9 +41,14 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    wa_message_id = Column(String(255), unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # Owner of this message
+    wa_message_id = Column(String(255), index=True)  # Cloud API message ID
     contact_id = Column(Integer, ForeignKey("contacts.id"))
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True)
+
+    # Evolution API specific fields
+    evolution_key_id = Column(String(255), nullable=True, unique=True, index=True)  # Evolution message key
+    source = Column(String(50), default="cloud_api")  # cloud_api | evolution_api
 
     # Message content
     message_type = Column(String(50))  # text, image, video, audio, document, etc.

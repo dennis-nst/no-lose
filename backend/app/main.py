@@ -1,8 +1,11 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.api.auth import router as auth_router
+from app.api.evolution import router as evolution_router
 from app.core.database import engine, Base
 
 # Create database tables
@@ -14,10 +17,24 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - configure origins based on environment
+cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:80",
+    "http://127.0.0.1:3000",
+]
+
+# Add production domain if configured
+domain = os.getenv("DOMAIN")
+if domain:
+    cors_origins.extend([
+        f"http://{domain}",
+        f"https://{domain}",
+    ])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,6 +43,7 @@ app.add_middleware(
 # Include routes
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(evolution_router, prefix="/api")
 
 
 @app.get("/")

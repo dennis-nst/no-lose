@@ -36,6 +36,12 @@ export default function DashboardPage() {
           </Link>
           <div className="flex items-center gap-4">
             <Link
+              href="/whatsapp"
+              className="text-gray-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400"
+            >
+              WhatsApp
+            </Link>
+            <Link
               href="/account"
               className="text-gray-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400"
             >
@@ -65,30 +71,30 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Link href="/whatsapp" className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 hover:shadow-lg transition">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              WhatsApp Connection
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400">
+              Connect your WhatsApp account to sync chat history.
+            </p>
+          </Link>
+
+          <Link href="/whatsapp/sync" className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 hover:shadow-lg transition">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              Sync Chats
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400">
+              View and sync your WhatsApp contacts and messages.
+            </p>
+          </Link>
+
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
               Quick Stats
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Your activity overview will appear here.
-            </p>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              Recent Activity
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              Your recent actions will be listed here.
-            </p>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              Notifications
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400">
-              You have no new notifications.
+              Your synced contacts and messages will appear here.
             </p>
           </div>
         </div>

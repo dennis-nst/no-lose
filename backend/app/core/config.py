@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # API Base URL
     wa_api_base_url: str = "https://graph.facebook.com/v18.0"
 
+    # Evolution API Settings
+    evolution_api_url: str = "http://evolution:8080"
+    evolution_api_key: str = ""
+
     class Config:
         env_file = ".env"
 
