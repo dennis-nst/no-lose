@@ -113,7 +113,7 @@ export default function Home() {
       </main>
 
       <footer className="p-6 text-center text-gray-500 dark:text-gray-400">
-        <p>&copy; 2025 No Lose. All rights reserved.</p>
+        <p>&copy; 2025 No Lose. All rights reserved. | Auto-deploy enabled</p>
       </footer>
     </div>
   );
