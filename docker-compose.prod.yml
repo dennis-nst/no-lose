@@ -36,7 +36,7 @@ services:
       dockerfile: Dockerfile
     container_name: wa_backend
     environment:
-      - DATABASE_URL=postgresql://wa_user:wa_password@postgres:5432/wa_database
+      - DATABASE_URL=postgresql+psycopg://wa_user:wa_password@postgres:5432/wa_database
       - EVOLUTION_API_URL=http://evolution:8080
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
     depends_on:
