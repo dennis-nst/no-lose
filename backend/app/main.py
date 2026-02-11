@@ -20,8 +20,10 @@ app = FastAPI(
 # CORS middleware - configure origins based on environment
 cors_origins = [
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost:80",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
 ]
 
 # Add production domain if configured

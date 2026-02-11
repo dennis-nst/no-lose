@@ -1,4 +1,15 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+// Use relative /api - proxied by Next.js (dev) or nginx (prod)
+const API_BASE = "/api";
+
+function networkErrorToMessage(err: unknown): string {
+  if (err instanceof TypeError && err.message === "Failed to fetch") {
+    return "Не удалось подключиться к серверу. Проверьте подключение к интернету и что backend запущен.";
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return "Произошла неизвестная ошибка";
+}
 
 export interface User {
   id: number;
@@ -59,78 +70,99 @@ export interface Message {
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  try {
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Login failed");
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Ошибка входа");
+    }
+
+    return response.json();
+  } catch (err) {
+    throw new Error(networkErrorToMessage(err));
   }
-
-  return response.json();
 }
 
 export async function register(email: string, password: string, name: string): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, name }),
-  });
+  try {
+    const response = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Registration failed");
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Ошибка регистрации");
+    }
+
+    return response.json();
+  } catch (err) {
+    throw new Error(networkErrorToMessage(err));
   }
-
-  return response.json();
 }
 
 export async function getMe(token: string): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  try {
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch user");
+    if (!response.ok) {
+      throw new Error("Ошибка загрузки профиля");
+    }
+
+    return response.json();
+  } catch (err) {
+    throw new Error(networkErrorToMessage(err));
   }
-
-  return response.json();
 }
 
 export async function updateProfile(token: string, name: string): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/me?name=${encodeURIComponent(name)}`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  try {
+    const response = await fetch(`${API_BASE}/auth/me?name=${encodeURIComponent(name)}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!response.ok) {
-    throw new Error("Failed to update profile");
+    if (!response.ok) {
+      throw new Error("Ошибка обновления профиля");
+    }
+
+    return response.json();
+  } catch (err) {
+    throw new Error(networkErrorToMessage(err));
   }
-
-  return response.json();
 }
 
 // ==================== Evolution API ====================
 
+
 async function authFetch(token: string, endpoint: string, options: RequestInit = {}) {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-  });
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail || "Request failed");
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Ошибка запроса" }));
+      throw new Error(error.detail || "Ошибка запроса");
+    }
+
+    return response.json();
+  } catch (err) {
+    throw new Error(networkErrorToMessage(err));
   }
-
-  return response.json();
 }
 
 export const evolutionApi = {
