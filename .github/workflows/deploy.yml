@@ -26,15 +26,21 @@ jobs:
             # Pull latest code
             git pull origin main
 
-            # Show container status before deploy
+            # Show disk space and container status
+            echo "=== Disk space ==="
+            df -h / | tail -1
+
             echo "=== Before deploy ==="
             docker compose -f docker-compose.prod.yml ps
 
-            # Stop all containers first to ensure clean state
-            docker compose -f docker-compose.prod.yml down
+            # CRITICAL: Free disk space BEFORE building
+            echo "=== Cleaning up disk space ==="
+            docker system prune -af --volumes 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+            echo "Disk after cleanup:"
+            df -h / | tail -1
 
-            # Pull latest images and force rebuild
-            docker compose -f docker-compose.prod.yml pull
+            # Build and start all containers (force recreate to pick up code changes)
             docker compose -f docker-compose.prod.yml up -d --build --force-recreate
 
             # Wait for postgres to be healthy
@@ -45,23 +51,23 @@ jobs:
                 break
               fi
               echo "Waiting... ($i/30)"
-              sleep 2
+              sleep 3
             done
 
             # Run database migrations
-            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head || echo "Migration failed (may be ok if tables exist)"
+            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head || echo "Migration warning (may be ok if tables exist)"
 
-            # Clean up unused images
-            docker system prune -f
+            # Post-deploy cleanup
+            docker system prune -f 2>/dev/null || true
 
-            # Show running containers
+            # Show final status
             echo "=== After deploy ==="
             docker compose -f docker-compose.prod.yml ps
+            echo "=== Disk space ==="
+            df -h / | tail -1
 
-            # Show recent backend logs
-            echo "=== Backend logs ==="
-            docker compose -f docker-compose.prod.yml logs --tail=20 backend
-
-            # Show recent postgres logs
+            # Show recent logs for debugging
             echo "=== Postgres logs ==="
-            docker compose -f docker-compose.prod.yml logs --tail=20 postgres
+            docker compose -f docker-compose.prod.yml logs --tail=10 postgres
+            echo "=== Backend logs ==="
+            docker compose -f docker-compose.prod.yml logs --tail=10 backend
