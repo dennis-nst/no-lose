@@ -97,8 +97,18 @@ export async function register(email: string, password: string, name: string): P
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Ошибка регистрации");
+      // #region agent log
+      const rawText = await response.text();
+      console.error(`[DEBUG_REG] Register error: status=${response.status}, body=${rawText}`);
+      // #endregion
+      let detail = "Ошибка регистрации";
+      try {
+        const errorJson = JSON.parse(rawText);
+        detail = errorJson.detail || detail;
+      } catch {
+        detail = `Ошибка сервера (${response.status}): ${rawText.substring(0, 200)}`;
+      }
+      throw new Error(detail);
     }
 
     return response.json();
