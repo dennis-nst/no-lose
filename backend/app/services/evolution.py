@@ -96,27 +96,42 @@ class EvolutionAPIService:
         """
         Connect an existing instance (triggers QR code generation).
 
-        POST /instance/connect/{name}
+        GET /instance/connect/{name}
+        Returns: { "pairingCode": null, "code": "2@...", "base64": "data:image/png;base64,...", "count": 1 }
         """
-        return await self._make_request("POST", f"/instance/connect/{instance_name}")
+        return await self._make_request("GET", f"/instance/connect/{instance_name}")
 
     async def get_instance_status(self, instance_name: str) -> Dict[str, Any]:
         """
         Get connection state of an instance.
 
         GET /instance/connectionState/{name}
-        Returns: { "instance": {...}, "state": "open"|"close"|"connecting" }
+        Evolution API v2 returns: { "instance": { "instanceName": "...", "state": "open"|"close"|"connecting" } }
+
+        Returns normalized: { "state": "open"|"close"|"connecting" }
         """
-        return await self._make_request("GET", f"/instance/connectionState/{instance_name}")
+        result = await self._make_request("GET", f"/instance/connectionState/{instance_name}")
+
+        # Normalize v2 response: state is inside instance.state
+        state = "close"
+        if isinstance(result, dict):
+            instance_data = result.get("instance", {})
+            if isinstance(instance_data, dict):
+                state = instance_data.get("state", "close")
+            # Fallback: some versions return state at root
+            if state == "close" and "state" in result:
+                state = result["state"]
+
+        return {"state": state, "raw": result}
 
     async def get_instance_qrcode(self, instance_name: str) -> Dict[str, Any]:
         """
         Get QR code for an instance.
 
-        GET /instance/qrcode/{name}
-        Returns: { "pairingCode": null, "code": "2@...", "base64": "data:image/png;base64,..." }
+        Uses /instance/connect/{name} which reliably returns QR in Evolution API v2.
+        Returns: { "pairingCode": null, "code": "2@...", "base64": "data:image/png;base64,...", "count": N }
         """
-        return await self._make_request("GET", f"/instance/qrcode/{instance_name}")
+        return await self._make_request("GET", f"/instance/connect/{instance_name}")
 
     async def logout_instance(self, instance_name: str) -> Dict[str, Any]:
         """

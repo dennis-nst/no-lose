@@ -132,25 +132,31 @@ async def create_instance(
                     last_connected_at=instance.last_connected_at.isoformat() if instance.last_connected_at else None
                 )
         except EvolutionAPIError:
-            # Instance doesn't exist, we'll create it
+            # Instance doesn't exist in Evolution, we'll create it
             pass
 
-        # Create new instance
-        create_response = await evolution_service.create_instance(instance.instance_name)
+        # Create new instance (QR typically not in create response for v2)
+        try:
+            await evolution_service.create_instance(instance.instance_name)
+        except EvolutionAPIError as e:
+            # 403 = instance already exists, that's fine
+            if e.status_code != 403:
+                raise
 
-        # Extract QR code if available
+        # Get QR code via connect endpoint (reliable in Evolution API v2)
+        import asyncio
+        await asyncio.sleep(1)  # Brief pause for instance initialization
+
         qr_code = None
-        if "qrcode" in create_response:
-            qr_data = create_response["qrcode"]
-            if isinstance(qr_data, dict):
-                qr_code = qr_data.get("base64")
-            else:
-                qr_code = qr_data
+        try:
+            connect_response = await evolution_service.connect_instance(instance.instance_name)
+            qr_code = connect_response.get("base64")
+        except EvolutionAPIError:
+            logger.warning(f"Failed to get QR from connect for {instance.instance_name}")
 
-        instance.status = "qr" if qr_code else "disconnected"
+        instance.status = "qr" if qr_code else "connecting"
         instance.qr_code = qr_code
         instance.qr_code_updated_at = datetime.utcnow() if qr_code else None
-        instance.raw_data = create_response
         db.commit()
 
         return InstanceStatusResponse(
@@ -192,7 +198,17 @@ async def get_instance_status(
             instance.status = "connected"
             instance.last_connected_at = datetime.utcnow()
         elif state == "connecting":
+            # If connecting, try to get fresh QR code
             instance.status = "connecting"
+            try:
+                qr_response = await evolution_service.get_instance_qrcode(instance.instance_name)
+                qr_code = qr_response.get("base64")
+                if qr_code:
+                    instance.status = "qr"
+                    instance.qr_code = qr_code
+                    instance.qr_code_updated_at = datetime.utcnow()
+            except EvolutionAPIError:
+                pass
         else:
             instance.status = "disconnected"
 
@@ -208,7 +224,7 @@ async def get_instance_status(
         )
 
     except EvolutionAPIError as e:
-        # Instance might not exist
+        # Instance might not exist in Evolution
         return InstanceStatusResponse(
             instance_name=instance.instance_name,
             status="disconnected"
@@ -232,13 +248,25 @@ async def get_qrcode(
         )
 
     try:
+        # First check if already connected
+        try:
+            status_response = await evolution_service.get_instance_status(instance.instance_name)
+            if status_response.get("state") == "open":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Instance is already connected. No QR code needed."
+                )
+        except EvolutionAPIError:
+            pass
+
+        # Get QR via connect endpoint (reliable in Evolution API v2)
         qr_response = await evolution_service.get_instance_qrcode(instance.instance_name)
         qr_code = qr_response.get("base64")
 
         if not qr_code:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="QR code not available. Instance may already be connected."
+                detail="QR code not available. Try creating a new instance."
             )
 
         instance.qr_code = qr_code
@@ -251,6 +279,8 @@ async def get_qrcode(
             instance_name=instance.instance_name
         )
 
+    except HTTPException:
+        raise
     except EvolutionAPIError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
