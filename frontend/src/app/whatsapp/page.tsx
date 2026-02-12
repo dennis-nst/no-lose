@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { evolutionApi, InstanceStatus } from "@/lib/api";
+
+const POLL_INTERVAL_MS = 10_000; // 10 seconds between QR auto-refreshes
+const MAX_AUTO_REFRESHES = 30; // stop auto-refresh after 30 cycles (~5 min)
 
 export default function WhatsAppPage() {
   const { user, loading, token, logout } = useAuth();
@@ -14,19 +17,59 @@ export default function WhatsAppPage() {
   const [statusLoading, setStatusLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoRefreshStopped, setAutoRefreshStopped] = useState(false);
+  const pollCountRef = useRef(0);
 
+  // Check connection status only (no QR generation).
+  // Preserves locally held QR code when backend returns "connecting".
   const fetchStatus = useCallback(async () => {
-    if (!token) return;
+    if (!token) return null;
 
     try {
       const data = await evolutionApi.getStatus(token);
-      setStatus(data);
+
+      setStatus((prev) => {
+        // If backend says "connecting" but we already have a QR locally,
+        // keep showing QR — backend doesn't store QR during polling.
+        if (data.status === "connecting" && prev?.qr_code) {
+          return { ...data, status: "qr", qr_code: prev.qr_code };
+        }
+        return data;
+      });
+
       setError(null);
+      return data;
     } catch (err) {
       console.error("Failed to fetch status:", err);
+      return null;
     } finally {
       setStatusLoading(false);
     }
+  }, [token]);
+
+  // Fetch fresh QR code from Evolution API
+  const refreshQR = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      const data = await evolutionApi.getQRCode(token);
+      setStatus((prev) => (prev ? { ...prev, qr_code: data.qr_code, status: "qr" } : null));
+    } catch (err) {
+      console.error("Failed to refresh QR:", err);
+    }
+  }, [token]);
+
+  const handleDisconnect = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      await evolutionApi.disconnect(token);
+    } catch (err) {
+      console.error("Failed to disconnect:", err);
+    }
+    setStatus((prev) => (prev ? { ...prev, status: "disconnected", qr_code: undefined } : null));
+    pollCountRef.current = 0;
+    setAutoRefreshStopped(false);
   }, [token]);
 
   useEffect(() => {
@@ -35,25 +78,53 @@ export default function WhatsAppPage() {
     }
   }, [user, loading, router]);
 
+  // On page load: check actual status (connected or not). No QR shown.
   useEffect(() => {
     if (token) {
       fetchStatus();
     }
   }, [token, fetchStatus]);
 
-  // Auto-refresh status when QR code is shown or connecting
+  // Auto-refresh: every 10s check if connected, and refresh QR if not.
+  // Stops after MAX_AUTO_REFRESHES. User can restart by clicking "Refresh QR".
   useEffect(() => {
-    if (status?.status === "qr" || status?.status === "connecting") {
-      const interval = setInterval(fetchStatus, 5000);
-      return () => clearInterval(interval);
+    if (status?.status !== "qr" && status?.status !== "connecting") {
+      return;
     }
-  }, [status?.status, fetchStatus]);
+    if (autoRefreshStopped) {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      // First check if connected
+      const freshStatus = await fetchStatus();
+      if (freshStatus?.status === "connected" || freshStatus?.status === "disconnected") {
+        clearInterval(interval);
+        return;
+      }
+
+      // Still waiting for scan — refresh QR
+      pollCountRef.current += 1;
+      if (pollCountRef.current >= MAX_AUTO_REFRESHES) {
+        clearInterval(interval);
+        setAutoRefreshStopped(true);
+        setError("Auto-refresh stopped. Click \"Refresh QR Code\" to get a new code.");
+        return;
+      }
+
+      await refreshQR();
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [status?.status, autoRefreshStopped, fetchStatus, refreshQR]);
 
   const handleConnect = async () => {
     if (!token) return;
 
     setActionLoading(true);
     setError(null);
+    pollCountRef.current = 0;
+    setAutoRefreshStopped(false);
 
     try {
       const data = await evolutionApi.createInstance(token);
@@ -65,11 +136,14 @@ export default function WhatsAppPage() {
     }
   };
 
+  // Manual QR refresh — always works, resets auto-refresh counter
   const handleRefreshQR = async () => {
     if (!token) return;
 
     setActionLoading(true);
     setError(null);
+    pollCountRef.current = 0;
+    setAutoRefreshStopped(false);
 
     try {
       const data = await evolutionApi.getQRCode(token);
@@ -81,20 +155,14 @@ export default function WhatsAppPage() {
     }
   };
 
-  const handleDisconnect = async () => {
+  const handleDisconnectClick = async () => {
     if (!token) return;
 
     setActionLoading(true);
     setError(null);
 
-    try {
-      await evolutionApi.disconnect(token);
-      setStatus((prev) => (prev ? { ...prev, status: "disconnected", qr_code: undefined } : null));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to disconnect");
-    } finally {
-      setActionLoading(false);
-    }
+    await handleDisconnect();
+    setActionLoading(false);
   };
 
   if (loading) {
@@ -238,7 +306,7 @@ export default function WhatsAppPage() {
                 code.
               </p>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-500">
-                QR code refreshes automatically. Click &quot;Refresh QR&quot; if it expires.
+                QR code refreshes automatically. Click &quot;Refresh QR Code&quot; if scan fails.
               </p>
             </div>
           )}
@@ -282,7 +350,7 @@ export default function WhatsAppPage() {
                   Sync Chats
                 </Link>
                 <button
-                  onClick={handleDisconnect}
+                  onClick={handleDisconnectClick}
                   disabled={actionLoading}
                   className="px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >

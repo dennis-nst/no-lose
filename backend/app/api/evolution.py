@@ -5,6 +5,7 @@ Endpoints for WhatsApp connection via Evolution API,
 including instance management, contact/message sync, and messaging.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional
@@ -144,7 +145,6 @@ async def create_instance(
                 raise
 
         # Get QR code via connect endpoint (reliable in Evolution API v2)
-        import asyncio
         await asyncio.sleep(1)  # Brief pause for instance initialization
 
         qr_code = None
@@ -178,7 +178,12 @@ async def get_instance_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get current connection status for user's WhatsApp instance."""
+    """
+    Get current connection status for user's WhatsApp instance.
+
+    This endpoint only checks connectionState — it does NOT generate new QR codes.
+    The cached QR from the DB is returned if still in "qr" state.
+    """
     instance = db.query(EvolutionInstance).filter(
         EvolutionInstance.user_id == current_user.id
     ).first()
@@ -197,20 +202,16 @@ async def get_instance_status(
         if state == "open":
             instance.status = "connected"
             instance.last_connected_at = datetime.utcnow()
+            instance.qr_code = None
         elif state == "connecting":
-            # If connecting, try to get fresh QR code
+            # Instance exists and is waiting for QR scan.
+            # Return "connecting" so frontend knows polling should continue.
+            # Don't return cached QR — frontend fetches fresh QR separately.
             instance.status = "connecting"
-            try:
-                qr_response = await evolution_service.get_instance_qrcode(instance.instance_name)
-                qr_code = qr_response.get("base64")
-                if qr_code:
-                    instance.status = "qr"
-                    instance.qr_code = qr_code
-                    instance.qr_code_updated_at = datetime.utcnow()
-            except EvolutionAPIError:
-                pass
         else:
+            # close / unknown = disconnected
             instance.status = "disconnected"
+            instance.qr_code = None
 
         db.commit()
 
@@ -293,7 +294,7 @@ async def disconnect_instance(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Disconnect WhatsApp instance (logout)."""
+    """Disconnect WhatsApp instance (logout and delete from Evolution)."""
     instance = db.query(EvolutionInstance).filter(
         EvolutionInstance.user_id == current_user.id
     ).first()
@@ -305,7 +306,15 @@ async def disconnect_instance(
         )
 
     try:
-        await evolution_service.logout_instance(instance.instance_name)
+        # Try logout first, then delete to clean up fully
+        try:
+            await evolution_service.logout_instance(instance.instance_name)
+        except EvolutionAPIError:
+            pass
+        try:
+            await evolution_service.delete_instance(instance.instance_name)
+        except EvolutionAPIError:
+            pass
 
         instance.status = "disconnected"
         instance.qr_code = None
@@ -313,11 +322,13 @@ async def disconnect_instance(
 
         return {"message": "Successfully disconnected"}
 
-    except EvolutionAPIError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to disconnect: {e.message}"
-        )
+    except Exception as e:
+        logger.error(f"Disconnect error: {e}")
+        # Still reset local status even if Evolution API fails
+        instance.status = "disconnected"
+        instance.qr_code = None
+        db.commit()
+        return {"message": "Disconnected (with warnings)"}
 
 
 # ==================== Sync Operations ====================
