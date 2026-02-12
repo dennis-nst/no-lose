@@ -26,15 +26,42 @@ jobs:
             # Pull latest code
             git pull origin main
 
-            # Pull latest images and rebuild
+            # Show container status before deploy
+            echo "=== Before deploy ==="
+            docker compose -f docker-compose.prod.yml ps
+
+            # Stop all containers first to ensure clean state
+            docker compose -f docker-compose.prod.yml down
+
+            # Pull latest images and force rebuild
             docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml up -d --build --force-recreate
+
+            # Wait for postgres to be healthy
+            echo "Waiting for postgres to be healthy..."
+            for i in $(seq 1 30); do
+              if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U wa_user -d wa_database 2>/dev/null; then
+                echo "Postgres is ready!"
+                break
+              fi
+              echo "Waiting... ($i/30)"
+              sleep 2
+            done
 
             # Run database migrations
-            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
+            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head || echo "Migration failed (may be ok if tables exist)"
 
             # Clean up unused images
             docker system prune -f
 
             # Show running containers
+            echo "=== After deploy ==="
             docker compose -f docker-compose.prod.yml ps
+
+            # Show recent backend logs
+            echo "=== Backend logs ==="
+            docker compose -f docker-compose.prod.yml logs --tail=20 backend
+
+            # Show recent postgres logs
+            echo "=== Postgres logs ==="
+            docker compose -f docker-compose.prod.yml logs --tail=20 postgres

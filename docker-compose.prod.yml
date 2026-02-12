@@ -55,14 +55,15 @@ services:
       POSTGRES_DB: wa_database
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    shm_size: 128m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wa_user -d wa_database"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
-    mem_limit: 200m
-    command: postgres -c shared_buffers=64MB -c max_connections=20
+    mem_limit: 256m
+    command: postgres -c shared_buffers=32MB -c max_connections=20 -c work_mem=2MB -c maintenance_work_mem=16MB
 
   # Evolution API for WhatsApp
   evolution:
@@ -92,7 +93,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    mem_limit: 350m
+    mem_limit: 300m
 
 volumes:
   postgres_data:
