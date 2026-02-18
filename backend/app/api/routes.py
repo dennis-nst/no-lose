@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 
@@ -5,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.core.config import settings
 from app.services.whatsapp import whatsapp_service
 from app.models.whatsapp import Message, Contact, Conversation
 from app.models.evolution import EvolutionInstance
-from app.services.evolution import evolution_service
+from app.services.evolution import evolution_service, EvolutionAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -217,22 +218,48 @@ async def handle_connection_update(db: Session, instance: EvolutionInstance, dat
     if state == "open":
         instance.status = "connected"
         instance.last_connected_at = datetime.utcnow()
+        instance.chats_count = None
 
-        # Extract profile info if available
         if "connection" in state_data:
             conn = state_data["connection"]
             instance.phone_number = conn.get("wid", {}).get("user")
             instance.profile_name = conn.get("pushName")
 
+        db.commit()
+        asyncio.create_task(_sync_chats_count(instance.instance_name, instance.id))
+
     elif state == "close":
         instance.status = "disconnected"
         instance.qr_code = None
+        instance.chats_count = None
+        db.commit()
 
     elif state == "connecting":
         instance.status = "connecting"
+        db.commit()
 
-    db.commit()
     logger.info(f"Instance {instance.instance_name} state updated to: {instance.status}")
+
+
+async def _sync_chats_count(instance_name: str, instance_id: int):
+    """Background task: fetch chats from WA and save count."""
+    await asyncio.sleep(5)
+    db = SessionLocal()
+    try:
+        chats = await evolution_service.fetch_chats(instance_name)
+        count = sum(1 for c in chats if "@g.us" not in (c.get("remoteJid") or ""))
+
+        inst = db.query(EvolutionInstance).filter(EvolutionInstance.id == instance_id).first()
+        if inst:
+            inst.chats_count = count
+            db.commit()
+            logger.info(f"Auto-synced chats count for {instance_name}: {count}")
+    except EvolutionAPIError as e:
+        logger.error(f"Auto-sync chats failed for {instance_name}: {e.message}")
+    except Exception as e:
+        logger.error(f"Auto-sync chats unexpected error for {instance_name}: {e}")
+    finally:
+        db.close()
 
 
 async def handle_qrcode_update(db: Session, instance: EvolutionInstance, data: dict):

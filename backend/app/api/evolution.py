@@ -35,6 +35,7 @@ class InstanceStatusResponse(BaseModel):
     profile_name: Optional[str] = None
     qr_code: Optional[str] = None
     last_connected_at: Optional[str] = None
+    chats_count: Optional[int] = None
 
 
 class QRCodeResponse(BaseModel):
@@ -130,7 +131,8 @@ async def create_instance(
                     status="connected",
                     phone_number=instance.phone_number,
                     profile_name=instance.profile_name,
-                    last_connected_at=instance.last_connected_at.isoformat() if instance.last_connected_at else None
+                    last_connected_at=instance.last_connected_at.isoformat() if instance.last_connected_at else None,
+                    chats_count=instance.chats_count
                 )
         except EvolutionAPIError:
             # Instance doesn't exist in Evolution, we'll create it
@@ -221,14 +223,16 @@ async def get_instance_status(
             phone_number=instance.phone_number,
             profile_name=instance.profile_name,
             qr_code=instance.qr_code if instance.status == "qr" else None,
-            last_connected_at=instance.last_connected_at.isoformat() if instance.last_connected_at else None
+            last_connected_at=instance.last_connected_at.isoformat() if instance.last_connected_at else None,
+            chats_count=instance.chats_count
         )
 
     except EvolutionAPIError as e:
         # Instance might not exist in Evolution
         return InstanceStatusResponse(
             instance_name=instance.instance_name,
-            status="disconnected"
+            status="disconnected",
+            chats_count=instance.chats_count
         )
 
 
@@ -393,12 +397,10 @@ async def sync_chats(
     try:
         chats = await evolution_service.fetch_chats(instance.instance_name)
 
-        # Format chats for response
         chat_list = []
         for chat in chats:
-            remote_jid = chat.get("id", chat.get("remoteJid", ""))
+            remote_jid = chat.get("remoteJid") or ""
 
-            # Skip groups for now
             if "@g.us" in remote_jid:
                 continue
 
@@ -408,6 +410,9 @@ async def sync_chats(
                 "unread_count": chat.get("unreadCount", 0),
                 "last_message_time": chat.get("lastMessageTime")
             })
+
+        instance.chats_count = len(chat_list)
+        db.commit()
 
         return {"chats": chat_list, "total": len(chat_list)}
 

@@ -31,6 +31,9 @@ class EvolutionInstance(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_connected_at = Column(DateTime, nullable=True)
 
+    # Sync stats
+    chats_count = Column(Integer, nullable=True)
+
     # Raw API response data
     raw_data = Column(JSON, nullable=True)
 

@@ -1,19 +1,49 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { evolutionApi } from "@/lib/api";
 
 export default function DashboardPage() {
-  const { user, loading, logout } = useAuth();
+  const { user, token, loading, logout } = useAuth();
   const router = useRouter();
+  const [chatsCount, setChatsCount] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const didRun = useRef(false);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (!token || didRun.current) return;
+    didRun.current = true;
+
+    (async () => {
+      try {
+        const status = await evolutionApi.getStatus(token);
+
+        if (status.chats_count != null) {
+          setChatsCount(status.chats_count);
+          return;
+        }
+
+        if (status.status !== "connected") return;
+
+        setSyncing(true);
+        const result = await evolutionApi.syncChats(token);
+        setChatsCount(result.total);
+      } catch {
+        /* WA may not be ready */
+      } finally {
+        setSyncing(false);
+      }
+    })();
+  }, [token]);
 
   if (loading) {
     return (
@@ -81,9 +111,19 @@ export default function DashboardPage() {
           </Link>
 
           <Link href="/whatsapp/sync" className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 hover:shadow-lg transition">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-              Sync Chats
-            </h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Sync Chats
+              </h3>
+              {syncing && (
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-indigo-400 border-t-transparent"></div>
+              )}
+              {!syncing && chatsCount != null && (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                  {chatsCount}
+                </span>
+              )}
+            </div>
             <p className="text-gray-600 dark:text-gray-400">
               View and sync your WhatsApp contacts and messages.
             </p>

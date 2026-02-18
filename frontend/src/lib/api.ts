@@ -32,6 +32,7 @@ export interface InstanceStatus {
   profile_name?: string;
   qr_code?: string;
   last_connected_at?: string;
+  chats_count?: number | null;
 }
 
 export interface QRCodeResponse {

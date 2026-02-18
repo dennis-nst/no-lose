@@ -172,9 +172,9 @@ class EvolutionAPIService:
         """
         Fetch all chats from WhatsApp.
 
-        GET /chat/findChats/{name}
+        POST /chat/findChats/{name}
         """
-        result = await self._make_request("GET", f"/chat/findChats/{instance_name}")
+        result = await self._make_request("POST", f"/chat/findChats/{instance_name}", data={})
         return result if isinstance(result, list) else result.get("chats", [])
 
     async def fetch_messages(
