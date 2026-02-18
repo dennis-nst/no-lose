@@ -65,10 +65,10 @@ services:
 
   # Evolution API for WhatsApp
   evolution:
-    image: atendai/evolution-api:latest
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: wa_evolution
     environment:
-      - SERVER_URL=https://${DOMAIN}/evolution
+      - SERVER_URL=http://${DOMAIN}/evolution
       - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
       - DATABASE_ENABLED=true
@@ -85,6 +85,10 @@ services:
       - WEBHOOK_GLOBAL_URL=http://backend:8000/api/webhook/evolution
       - CONFIG_SESSION_PHONE_CLIENT=WA App
       - CONFIG_SESSION_PHONE_NAME=Chrome
+      # Disable Redis (no Redis container) and use local cache
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_REDIS_SAVE_INSTANCES=false
+      - CACHE_LOCAL_ENABLED=true
     volumes:
       - evolution_instances:/evolution/instances
     depends_on:
