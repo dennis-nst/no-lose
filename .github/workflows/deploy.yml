@@ -51,8 +51,21 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Build and start all containers
-            docker compose -f docker-compose.prod.yml up -d --build
+            # Build services sequentially to manage disk space on e2-micro (10GB disk)
+            # Backend is small (~200MB), frontend is large (~1GB build)
+            docker compose -f docker-compose.prod.yml build --no-cache backend
+            docker builder prune -a -f 2>/dev/null || true
+            sudo rm -rf /tmp/.tmp-compose-* 2>/dev/null || true
+
+            docker compose -f docker-compose.prod.yml build --no-cache frontend
+            docker builder prune -a -f 2>/dev/null || true
+            sudo rm -rf /tmp/.tmp-compose-* 2>/dev/null || true
+
+            echo "=== Disk after build ==="
+            df -h / | tail -1
+
+            # Start all containers (pulls external images: postgres, evolution, nginx)
+            docker compose -f docker-compose.prod.yml up -d
 
             # Wait for postgres to be healthy (up to 90s)
             echo "Waiting for postgres..."
@@ -78,8 +91,9 @@ jobs:
             # Run database migrations
             docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
 
-            # Post-build cleanup
+            # Final cleanup
             docker image prune -f 2>/dev/null || true
+            docker builder prune -a -f 2>/dev/null || true
 
             echo "=== Deploy complete ==="
             docker compose -f docker-compose.prod.yml ps
