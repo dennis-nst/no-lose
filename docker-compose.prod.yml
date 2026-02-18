@@ -53,6 +53,7 @@ services:
       POSTGRES_DB: wa_database
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./deploy/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     shm_size: 128m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wa_user -d wa_database"]
@@ -73,7 +74,7 @@ services:
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://wa_user:wa_password@postgres:5432/wa_database
+      - DATABASE_CONNECTION_URI=postgresql://wa_user:wa_password@postgres:5432/wa_evolution
       - DATABASE_CONNECTION_CLIENT_NAME=evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true

@@ -73,10 +73,11 @@ frontend/
 nginx/
   nginx.conf             — /api → backend:8000, /evolution → evolution:8080, / → frontend:3000
 
-docker-compose.yml       — dev environment
-docker-compose.prod.yml  — production (5 containers)
-.github/workflows/deploy.yml — CI/CD
+docker-compose.yml       — dev environment (postgres + evolution only)
+docker-compose.prod.yml  — full stack (5 containers: nginx, frontend, backend, postgres, evolution)
+.github/workflows/deploy.yml — CI/CD (push to main → deploy to GCP)
 deploy/
+  init-db.sh             — creates wa_evolution DB on first postgres start
   gcp-setup.sh           — VM provisioning
   server-setup.sh        — server setup (Docker, swap)
 ```
@@ -141,7 +142,7 @@ docker-compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 ## Running the Project
 
-### Local Development
+### Local Development (without Docker)
 
 ```bash
 # Backend
@@ -151,24 +152,109 @@ pip install -r requirements.txt
 cp .env.example .env  # fill in the variables
 uvicorn app.main:app --reload --port 8000
 
-# Frontend
+# Frontend (in a separate terminal)
 cd frontend
 npm install
-cp .env.example .env.local  # if available
 npm run dev
-
-# Or via Docker
-docker-compose up -d
 ```
 
-### Production
+Requires a locally running PostgreSQL (see `backend/.env` for connection string).
+
+### Local Development via Docker (full stack)
+
+Runs all 5 services (nginx, frontend, backend, postgres, evolution) locally — identical to production.
+
+**Prerequisites:** Docker Desktop running.
+
+**1. Configure environment:**
 
 ```bash
-# On GCP VM
-docker-compose -f docker-compose.prod.yml up -d --build
+# Root .env (create or verify)
+cat .env
+```
 
-# Check status
+Should contain:
+```env
+DOMAIN=localhost
+EVOLUTION_API_KEY=evolution_api_key_dev
+EVOLUTION_API_URL=http://evolution:8080
+```
+
+**2. Create SSL directory (needed for nginx volume mount):**
+
+```bash
+mkdir -p nginx/ssl
+```
+
+**3. Build and start:**
+
+```bash
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+**4. Verify:**
+
+```bash
+# All 5 containers should be running
 docker-compose -f docker-compose.prod.yml ps
+
+# Health check
+curl http://localhost/api/health
+# → {"status":"ok"}
+```
+
+**Access:**
+- Frontend: http://localhost
+- API docs: http://localhost/api/docs
+- API health: http://localhost/api/health
+
+**Stop:**
+
+```bash
+docker-compose -f docker-compose.prod.yml down
+```
+
+**Full reset (including database):**
+
+```bash
+docker-compose -f docker-compose.prod.yml down -v
+```
+
+**Important notes:**
+- PostgreSQL creates two databases: `wa_database` (backend) and `wa_evolution` (Evolution API) — via `deploy/init-db.sh`
+- The init script only runs on first start (empty volume). To re-run it: `docker-compose down -v` first
+- Evolution API may take 10–20 seconds to fully initialize after container start
+
+### Deploying to GCP (production)
+
+**Automatic (CI/CD):** every push to `main` triggers GitHub Actions → SSH deploy to GCP VM.
+
+```bash
+git add -A
+git commit -m "description"
+git push origin main
+```
+
+GitHub Actions workflow (`.github/workflows/deploy.yml`) will:
+1. SSH into the GCP VM
+2. `git pull origin main`
+3. `docker compose -f docker-compose.prod.yml up -d --build --force-recreate`
+4. Ensure `wa_evolution` database exists
+5. Run Alembic migrations
+
+**Manual deploy (on GCP VM):**
+
+```bash
+gcloud compute ssh no-lose-app --zone=us-west1-b
+cd ~/no-lose
+git pull origin main
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml ps
+```
+
+**Check logs:**
+
+```bash
 docker-compose -f docker-compose.prod.yml logs -f <service>
 ```
 

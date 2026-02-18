@@ -51,6 +51,10 @@ jobs:
               sleep 3
             done
 
+            # Ensure wa_evolution database exists (for Evolution API)
+            docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -tc "SELECT 1 FROM pg_database WHERE datname = 'wa_evolution'" | grep -q 1 || \
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -c "CREATE DATABASE wa_evolution OWNER wa_user;" || true
+
             # Run database migrations
             docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head || echo "Migration warning (may be ok if tables exist)"
 
