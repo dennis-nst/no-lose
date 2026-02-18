@@ -47,8 +47,9 @@ jobs:
             echo "=== Disk after cleanup ==="
             df -h / | tail -1
 
-            # Pull latest code
-            git pull origin main
+            # Pull latest code (reset local changes on server)
+            git fetch origin main
+            git reset --hard origin/main
 
             # Build and start all containers
             docker compose -f docker-compose.prod.yml up -d --build
