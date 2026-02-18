@@ -200,6 +200,20 @@ export const evolutionApi = {
   ): Promise<{ messages: Message[]; contact: Contact }> =>
     authFetch(token, `/evolution/messages/${contactId}`),
 
+  // Raw API data (returns Evolution API responses as-is)
+  getChatsRaw: (token: string): Promise<{ raw: any[] }> =>
+    authFetch(token, "/evolution/chats/raw"),
+
+  getChatMessagesRaw: (
+    token: string,
+    remoteJid: string,
+    limit: number = 50
+  ): Promise<{ raw: any[] }> =>
+    authFetch(token, "/evolution/chats/messages/raw", {
+      method: "POST",
+      body: JSON.stringify({ remote_jid: remoteJid, limit }),
+    }),
+
   // Messaging
   sendText: (
     token: string,

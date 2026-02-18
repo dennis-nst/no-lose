@@ -65,6 +65,11 @@ class ChatInfo(BaseModel):
     last_message_time: Optional[str] = None
 
 
+class FetchChatMessagesRequest(BaseModel):
+    remote_jid: str
+    limit: int = 50
+
+
 class ContactInfo(BaseModel):
     id: int
     wa_id: str
@@ -336,6 +341,67 @@ async def disconnect_instance(
 
 
 # ==================== Sync Operations ====================
+
+@router.get("/chats/raw")
+async def get_chats_raw(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get raw chat list from Evolution API. Returns the API response as-is."""
+    instance = db.query(EvolutionInstance).filter(
+        EvolutionInstance.user_id == current_user.id
+    ).first()
+
+    if not instance or instance.status != "connected":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp not connected"
+        )
+
+    try:
+        chats = await evolution_service.fetch_chats(instance.instance_name)
+        return {"raw": chats}
+    except EvolutionAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch chats: {e.message}"
+        )
+
+
+@router.post("/chats/messages/raw")
+async def get_chat_messages_raw(
+    request: FetchChatMessagesRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch messages for a specific chat by remoteJid.
+    Returns the raw Evolution API response.
+    No need to sync contacts first.
+    """
+    instance = db.query(EvolutionInstance).filter(
+        EvolutionInstance.user_id == current_user.id
+    ).first()
+
+    if not instance or instance.status != "connected":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp not connected"
+        )
+
+    try:
+        messages = await evolution_service.fetch_messages(
+            instance.instance_name,
+            request.remote_jid,
+            limit=request.limit
+        )
+        return {"raw": messages}
+    except EvolutionAPIError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch messages: {e.message}"
+        )
+
 
 @router.post("/sync/contacts", response_model=SyncResult)
 async def sync_contacts(
