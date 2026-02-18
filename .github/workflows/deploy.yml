@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -21,52 +25,61 @@ jobs:
           key: ${{ secrets.GCP_SSH_KEY }}
           command_timeout: 30m
           script: |
+            set -e
             cd /home/${{ secrets.GCP_VM_USER }}/no-lose
+
+            echo "=== Disk before cleanup ==="
+            df -h / | tail -1
+
+            # Stop all containers to free resources and allow full cleanup
+            docker compose -f docker-compose.prod.yml down || true
+
+            # Aggressive cleanup: remove ALL unused images (not just dangling), build cache, unused networks
+            docker image prune -a -f 2>/dev/null || true
+            docker builder prune -a -f 2>/dev/null || true
+            docker system prune -a -f 2>/dev/null || true
+
+            # Clear apt cache and temp files
+            sudo apt-get clean 2>/dev/null || true
+            sudo rm -rf /tmp/* 2>/dev/null || true
+            sudo journalctl --vacuum-size=50M 2>/dev/null || true
+
+            echo "=== Disk after cleanup ==="
+            df -h / | tail -1
 
             # Pull latest code
             git pull origin main
 
-            # Show disk space
-            echo "=== Disk space ==="
-            df -h / | tail -1
-
-            # Clean up only dangling images and build cache (preserve named volumes and cached layers!)
-            echo "=== Cleaning up ==="
-            docker system prune -f 2>/dev/null || true
-            docker builder prune -f --keep-storage=500MB 2>/dev/null || true
-            echo "Disk after cleanup:"
-            df -h / | tail -1
-
             # Build and start all containers
-            docker compose -f docker-compose.prod.yml up -d --build --force-recreate
+            docker compose -f docker-compose.prod.yml up -d --build
 
-            # Wait for postgres to be healthy
-            echo "Waiting for postgres to be healthy..."
+            # Wait for postgres to be healthy (up to 90s)
+            echo "Waiting for postgres..."
             for i in $(seq 1 30); do
               if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U wa_user -d wa_database 2>/dev/null; then
                 echo "Postgres is ready!"
                 break
               fi
-              echo "Waiting... ($i/30)"
+              if [ "$i" -eq 30 ]; then
+                echo "ERROR: Postgres failed to start"
+                docker compose -f docker-compose.prod.yml logs --tail=20 postgres
+                exit 1
+              fi
               sleep 3
             done
 
-            # Ensure wa_evolution database exists (for Evolution API)
-            docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -tc "SELECT 1 FROM pg_database WHERE datname = 'wa_evolution'" | grep -q 1 || \
-              docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -c "CREATE DATABASE wa_evolution OWNER wa_user;" || true
+            # Ensure wa_evolution database exists
+            docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -tc \
+              "SELECT 1 FROM pg_database WHERE datname = 'wa_evolution'" | grep -q 1 || \
+              docker compose -f docker-compose.prod.yml exec -T postgres psql -U wa_user -d wa_database -c \
+              "CREATE DATABASE wa_evolution OWNER wa_user;"
 
             # Run database migrations
-            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head || echo "Migration warning (may be ok if tables exist)"
+            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
 
-            # Post-deploy cleanup (dangling only)
-            docker system prune -f 2>/dev/null || true
+            # Post-build cleanup
+            docker image prune -f 2>/dev/null || true
 
-            # Show final status
-            echo "=== After deploy ==="
+            echo "=== Deploy complete ==="
             docker compose -f docker-compose.prod.yml ps
             df -h / | tail -1
-
-            echo "=== Postgres logs ==="
-            docker compose -f docker-compose.prod.yml logs --tail=10 postgres
-            echo "=== Backend logs ==="
-            docker compose -f docker-compose.prod.yml logs --tail=10 backend
