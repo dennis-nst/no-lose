@@ -23,51 +23,37 @@ jobs:
           host: ${{ secrets.GCP_VM_IP }}
           username: ${{ secrets.GCP_VM_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
-          command_timeout: 30m
+          command_timeout: 45m
           script: |
             set -e
             cd /home/${{ secrets.GCP_VM_USER }}/no-lose
 
-            echo "=== Disk before cleanup ==="
+            echo "=== Disk before deploy ==="
             df -h / | tail -1
 
-            # Stop all containers to free resources and allow full cleanup
-            docker compose -f docker-compose.prod.yml down || true
-
-            # Aggressive cleanup: remove ALL unused images (not just dangling), build cache, unused networks
-            docker image prune -a -f 2>/dev/null || true
-            docker builder prune -a -f 2>/dev/null || true
-            docker system prune -a -f 2>/dev/null || true
-
-            # Clear apt cache and temp files
-            sudo apt-get clean 2>/dev/null || true
-            sudo rm -rf /tmp/* 2>/dev/null || true
-            sudo journalctl --vacuum-size=50M 2>/dev/null || true
-
-            echo "=== Disk after cleanup ==="
-            df -h / | tail -1
-
-            # Pull latest code (reset local changes on server)
+            # Get latest code
             git fetch origin main
             git reset --hard origin/main
 
-            # Build services sequentially to manage disk space on e2-micro (10GB disk)
-            # Backend is small (~200MB), frontend is large (~1GB build)
-            docker compose -f docker-compose.prod.yml build --no-cache backend
-            docker builder prune -a -f 2>/dev/null || true
-            sudo rm -rf /tmp/.tmp-compose-* 2>/dev/null || true
+            # Free space only if disk usage > 80%
+            DISK_USAGE=$(df / --output=pcent | tail -1 | tr -d ' %')
+            if [ "$DISK_USAGE" -gt 80 ]; then
+              echo "Disk usage ${DISK_USAGE}% > 80%, cleaning up..."
+              docker image prune -f 2>/dev/null || true
+              docker builder prune -f 2>/dev/null || true
+              sudo apt-get clean 2>/dev/null || true
+              sudo journalctl --vacuum-size=50M 2>/dev/null || true
+              sudo rm -rf /tmp/.tmp-compose-* 2>/dev/null || true
+            fi
 
-            docker compose -f docker-compose.prod.yml build --no-cache frontend
-            docker builder prune -a -f 2>/dev/null || true
-            sudo rm -rf /tmp/.tmp-compose-* 2>/dev/null || true
+            # Build new images using layer cache (fast if only code changed)
+            docker compose -f docker-compose.prod.yml build backend
+            docker compose -f docker-compose.prod.yml build frontend
 
-            echo "=== Disk after build ==="
-            df -h / | tail -1
-
-            # Start all containers (pulls external images: postgres, evolution, nginx)
+            # Recreate containers with new images (zero-downtime for unchanged services)
             docker compose -f docker-compose.prod.yml up -d
 
-            # Wait for postgres to be healthy (up to 90s)
+            # Wait for postgres to be healthy
             echo "Waiting for postgres..."
             for i in $(seq 1 30); do
               if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U wa_user -d wa_database 2>/dev/null; then
@@ -91,9 +77,8 @@ jobs:
             # Run database migrations
             docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
 
-            # Final cleanup
+            # Clean up old images left after rebuild
             docker image prune -f 2>/dev/null || true
-            docker builder prune -a -f 2>/dev/null || true
 
             echo "=== Deploy complete ==="
             docker compose -f docker-compose.prod.yml ps
