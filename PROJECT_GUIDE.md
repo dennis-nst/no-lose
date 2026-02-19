@@ -356,6 +356,14 @@ EVOLUTION_API_KEY=...
 - **CI/CD:** push to `main` → GitHub Actions → SSH deploy to VM
 - **Cost:** ~$0/mo (GCP free tier)
 
+### Production Environment Notes
+
+- **Disk:** VM has ~10GB disk (may show 9.7G if partition not resized). Deploy uses incremental builds with layer cache, cleans only when usage > 80%.
+- **Deploy time:** ~30–45 min for full rebuild. Incremental deploys (code-only changes) are much faster.
+- **Concurrency:** Only one deploy runs at a time (`cancel-in-progress: true`).
+- **Migrations:** If `alembic upgrade head` fails (e.g. tables already exist), deploy stamps `alembic_version` to sync state.
+- **Instance name:** GCP VM may be `wa-app` or `no-lose-app` depending on setup script used.
+
 ### Useful Server Commands
 
 ```bash

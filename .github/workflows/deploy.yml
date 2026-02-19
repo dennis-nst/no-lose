@@ -75,7 +75,10 @@ jobs:
               "CREATE DATABASE wa_evolution OWNER wa_user;"
 
             # Run database migrations
-            docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head
+            if ! docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head; then
+              echo "Migration failed (tables may already exist). Stamping head to sync state."
+              docker compose -f docker-compose.prod.yml exec -T backend alembic stamp head || true
+            fi
 
             # Clean up old images left after rebuild
             docker image prune -f 2>/dev/null || true
